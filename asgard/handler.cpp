@@ -22,6 +22,7 @@
 #include "asgard/request.pb.h"
 #include "asgard/util.h"
 
+#include <valhalla/odin/directionsbuilder.h>
 #include <valhalla/thor/attributes_controller.h>
 #include <valhalla/thor/triplegbuilder.h>
 
@@ -262,8 +263,8 @@ pbnavitia::Response Handler::handle_direct_path(const pbnavitia::Request& reques
         return make_error_response(pbnavitia::Error::no_origin_nor_destination, "Cannot project the given coords!");
     }
 
-    Location origin;
-    Location dest;
+    valhalla::Location origin;
+    valhalla::Location dest;
     baldr::PathLocation::toPBF(projected_locations.at(locations.front()), &origin, graph);
     baldr::PathLocation::toPBF(projected_locations.at(locations.back()), &dest, graph);
 
@@ -295,6 +296,41 @@ pbnavitia::Response Handler::handle_direct_path(const pbnavitia::Request& reques
                                 pathedges.end(), origin, dest, {}, trip_leg);
 
     const auto response = direct_path_response_builder::build_journey_response(request, pathedges, trip_leg);
+
+    valhalla::Api api;
+
+    // trip
+    valhalla::Trip trip;
+    auto* leg = trip.mutable_routes()->Add()->mutable_legs()->Add();
+    leg = &trip_leg;
+
+    // trip_leg = *api.mutable_trip()->mutable_routes()->Add()->mutable_legs()->Add();
+    api.set_allocated_trip(&trip);
+    std::cout << "[asgard] has trip : " << api.has_trip() << std::endl;
+    std::cout << "[asgard] trip routes size : " << api.trip().routes().size() << std::endl;
+    std::cout << "[asgard] trip leg node size : " << trip_leg.node_size() << std::endl;
+
+    const auto& options = api.options();
+    for (auto& trip_route : *api.mutable_trip()->mutable_routes()) {
+        auto& directions_route = *api.mutable_directions()->mutable_routes()->Add();
+        for (auto& trip_path : *trip_route.mutable_legs()) {
+            std::cout << "[asgard] trip path node size : " << trip_path.node_size() << std::endl;
+            auto& trip_directions = *directions_route.mutable_legs()->Add();
+            // Validate trip path node list
+            if (trip_path.node_size() < 1) {
+                throw valhalla_exception_t{210};
+            }
+        }
+    }
+
+    // directions
+    valhalla::Directions directions;
+    valhalla::DirectionsRoute* directions_route = directions.mutable_routes()->Add();
+    auto* directions_leg = directions_route->add_legs();
+    api.set_allocated_directions(&directions);
+    std::cout << "[asgard] has directions : " << api.has_directions() << std::endl;
+
+    odin::DirectionsBuilder::Build(api);
 
     if (graph.OverCommitted()) { graph.Clear(); }
     algo.Clear();
